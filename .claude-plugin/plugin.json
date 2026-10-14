@@ -1,6 +1,6 @@
 {
   "name": "edge-claw",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Edge Claw: a Clawd desktop pet that walks the edges of the screen and stands in for Claude Code's notifications, with a summon button under the prompt",
   "author": { "name": "local" },
   "types": "./types/index.d.ts"

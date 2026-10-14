@@ -5,6 +5,7 @@
 #   .\scripts\dev.ps1 quit            send the pet home
 #   .\scripts\dev.ps1 play Confetti   play one animation now (any name in pet/clawd_sprites.json)
 #   .\scripts\dev.ps1 doze            make it nod off now
+#   .\scripts\dev.ps1 pose Thinking   hold a pose for 20 s: Laptop | Thinking | Desktop | Lightbulb
 #   .\scripts\dev.ps1 state done      pretend Claude reported a status: working | done | interrupted | idle
 #   .\scripts\dev.ps1 state working permission   ...with an attention: permission | question
 #   .\scripts\dev.ps1 test            validate the plugin and run its tests
@@ -69,7 +70,8 @@ switch ($Action) {
     'quit' { Stop-Pet; 'pet sent home' }
     'play' { Send-State @{ status = 'idle'; attention = $null; cmd = 'play'; anim = $Arg1 } }
     'doze' { Send-State @{ status = 'idle'; attention = $null; cmd = 'doze' } }
+    'pose' { Send-State @{ status = 'idle'; attention = $null; cmd = 'pose'; anim = $Arg1 } }
     'state' { Send-State @{ status = $Arg1; attention = $(if ($Arg2) { $Arg2 } else { $null }) } }
     'test' { $cc = Get-ClaudeCode; & $cc plugin validate $Root; & $cc plugin test $Root }
-    default { Get-Content $PSCommandPath | Where-Object { $_ -like '#*' } | Select-Object -First 15 }
+    default { Get-Content $PSCommandPath | Where-Object { $_ -like '#*' } | Select-Object -First 16 }
 }

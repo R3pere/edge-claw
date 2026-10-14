@@ -24,7 +24,7 @@
   - turn.start 写 `working` 并每 5 秒刷新 `ts`（`$.clock.every` 心跳），turn 结束 / session.end 写 `idle`
   - 兜底：没有新鲜会话文件的对话（旧版 mod、中途热更新），桌宠每 2 秒看 `~/.claude/projects/*/*.jsonl` 末尾：最后一条不是 Claude 的收尾回答（`end_turn` / `stop_hook_summary` / Esc / 斜杠命令）就算这一轮还在进行；30 分钟没动的不看
   - 桌宠：**任一**会话 `working` 且 30 秒内刷新过就进入干活模式；`attention` 取所有会话里的（question 优先）；有会话开了新 turn（`since` 晚于完成提醒）就收起完成提醒；24 小时没动的文件桌宠自己删
-  - `attention`：`permission` / `question` / `null`。`tool.check` 结果为 `ask` 且该调用正在我们的 `tool.call` 里时记下 tool_use_id，`tool.call` 结束时清掉（别的 mod 如 Blast Radius 会自己调 `$.tool.check` 预检再拦下，那种 ask 不算，否则灯泡会卡住）；`AskUserQuestion`、`ExitPlanMode` 算 question
+  - `attention`：`permission` / `question` / `null`。只认真正弹出的权限框：`classic.PermissionRequest` 触发时按工具名+输入对上正在跑的 `tool.call`，记下它的 tool_use_id，`tool.call` 结束时清掉。`tool.check` 的 `ask` 不算（自动模式的分类器、Blast Radius 的预检都会给 ask 但不弹框，算了灯泡会卡住）；`AskUserQuestion`、`ExitPlanMode` 算 question
 - `state.json`（mod 写）：只发事件 `{status, attention, ts, durationMs?, cmd?, cmdId?, anim?, then?}`
   - `status`：`done`（主循环 turn 正常结束）/ `interrupted`（Esc、出错、拒答）；mod 不再往这里写 `working`（会话崩了会卡住）。旧版 mod 和 `dev.ps1 state working` 写的 `working`/`attention` 桌宠仍然认
   - `ts` 变了才算新状态；`cmdId` 变了才执行 `cmd`：`quit`、`play`（`anim` + 可选 `then`）、`doze`
@@ -36,7 +36,7 @@
 ## 桌宠行为（`pet/clawd.pyw`）
 
 - 沿四条边走一圈：位置是一个周长坐标 `p`，`EDGES = bottom → right → top → left`；精灵按所在边旋转，脚贴边（`rotate`/`turn`/`unturn`）。拖拽松手离边 80px 内就吸附，否则掉到任务栏。
-- 干活时：停下摆 Laptop/Thinking/Desktop 姿势 10–20 秒（`POSE_HOLD_S`），姿势之间只挪 ±300px（`WORK_STROLL`）。
+- 干活时：停下摆 Laptop/Thinking/Desktop 姿势 10–20 秒（`POSE_HOLD_S`），姿势之间只挪 ±300px（`WORK_STROLL`）。Thinking 循环用 `POSE_LOOPS`：蹲起(20)→一边冒泡(21–36)→蹲起→另一边冒泡(4–19) 交替。`dev.ps1 pose <姿势>` 让它原地摆 20 秒。
 - 动画优先级（`choose_anim`）：一次性动作（`oneshot` + 队列）> 拖拽/掉落 Dizzy > 打盹 > pose（Laptop/Thinking/Desktop/Lightbulb）> 看鼠标（眼珠/指向）> 横着挪 CrabWalking / 东张西望。
 - 动画分段常量都在文件顶部：`SCUTTLE_LOOP`、`POSES`（开场/循环/收尾帧）、`DOZE_*`、`POINT_*`、`EYES`（眼珠 3×4 网格对应的帧）。分段是用 `node tools/sprites.js ids <Name>` 和 `frames` 逐帧看出来的。
 - 提醒：权限/提问举灯泡，原地等到处理完；任务完成原地跳+挥手循环，黄色「!!!」只在跳到最高点那几帧出现（闪烁），直到 Claude 窗口到前台（`claude_in_front`，前台进程名 `claude.exe`）或点一下它。

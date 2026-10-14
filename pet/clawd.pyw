@@ -75,6 +75,13 @@ POSES = {
     "Desktop": (3, 16, 78, 78, 85),
 }
 WORK_POSES = ("Laptop", "Thinking", "Desktop")
+# A pose whose middle is not one run of frames loops this sequence instead.
+# Thinking has two halves: standing with the bubble on one side (4-19), and,
+# after a little hop (20), crouched with the bubble on the other (21-36). The
+# clip plays each once; held, it hops into one, then hops into the other.
+POSE_LOOPS = {
+    "Thinking": (20, *range(21, 37), 20, *range(4, 20)),
+}
 POSE_HOLD_S = (10.0, 20.0)
 WORK_STROLL = 300  # how far it wanders between poses while working (900 when idle)
 
@@ -631,6 +638,11 @@ class Clawd:
                 return
             if state.get("cmd") == "play" and state.get("anim") in self.sprites:
                 self.play_once(state["anim"], then=[a for a in state.get("then", []) if a in self.sprites])
+            if state.get("cmd") == "pose" and state.get("anim") in POSES:  # hold a pose, for showing it off
+                self.wake()
+                self.oneshot, self.oneshot_queue, self.done_alert = None, [], False
+                self.pose, self.pose_start, self.pose_leaving = state["anim"], time.time(), None
+                self.pause_until = time.time() + 20
             if state.get("cmd") == "doze":  # nod off now, for showing it off
                 self.end_pose()
                 self.oneshot, self.oneshot_queue, self.done_alert = None, [], False
@@ -837,7 +849,11 @@ class Clawd:
             n = int((now - self.pose_start) * fps)
             if n < loop_start - open_start:
                 return open_start + n
-            return loop_start + (n - (loop_start - open_start)) % (loop_end - loop_start)
+            n -= loop_start - open_start
+            if name in POSE_LOOPS:
+                loop = POSE_LOOPS[name]
+                return loop[n % len(loop)]
+            return loop_start + n % (loop_end - loop_start)
         if name == "Disappointed" and self.oneshot != "Disappointed":  # dozing, not disappointed
             if self.mode == "sleep":
                 (open_start, open_end), (loop_start, loop_end) = DOZE_OPEN, DOZE_LOOP

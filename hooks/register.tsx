@@ -14,10 +14,11 @@ const waiting = new Map<string, Attention>()
 // Tools whose ask is a question to answer, not a permission to grant.
 const QUESTION_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 
-// Calls on their way to running. Another mod may check a call ahead of time
-// with $.tool.check and then refuse it; that ask never reaches the person and
-// its tool.call never settles, so only asks inside a call in flight count.
-const inFlight = new Set<string>()
+// Calls on their way to running, by tool_use_id, so a permission dialog can
+// be tied to its call. Only the dialog itself counts as waiting on the person:
+// a tool.check "ask" is often settled with no dialog at all (auto mode's
+// classifier, another mod's dry-run check that then refuses the call).
+const inFlight = new Map<string, { tool: string; input: string }>()
 
 function attention(): Attention | null {
   const kinds = [...waiting.values()]
@@ -179,16 +180,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // A call the engine puts to the person (a permission dialog, a question, a
-  // plan to approve) waits on them until its tool.call settles below.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (verdict.decision === 'ask' && e.tool_use_id && inFlight.has(e.tool_use_id)) {
-      waiting.set(e.tool_use_id, QUESTION_TOOLS.has(e.tool) ? 'question' : 'permission')
+  // A permission dialog on screen waits on the person until its call settles.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const input = JSON.stringify(e.tool_input)
+    const calls = [...inFlight].filter(([, call]) => call.tool === e.tool_name)
+    const match = calls.find(([, call]) => call.input === input) ?? calls.at(-1)
+    if (match) {
+      waiting.set(match[0], QUESTION_TOOLS.has(e.tool_name) ? 'question' : 'permission')
       await writeSession($)
     }
 
-    return verdict
+    return next(e)
   }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
@@ -196,7 +198,7 @@ export const register: Register = on => {
       waiting.set(e.tool_use_id, 'question')
       await writeSession($)
     }
-    inFlight.add(e.tool_use_id)
+    inFlight.set(e.tool_use_id, { tool: e.tool, input: JSON.stringify(e.input) })
     try {
       return await next(e)
     } finally {

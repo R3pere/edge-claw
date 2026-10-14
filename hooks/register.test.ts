@@ -21,7 +21,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('a permission ask raises the lightbulb until the call settles', async ($, on) => {
+test('a permission dialog raises the lightbulb until the call settles', async ($, on) => {
   mock.clock(on, { now: 1_000 })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.id', () => ({ value: 's1' }))
@@ -31,6 +31,7 @@ test('a permission ask raises the lightbulb until the call settles', async ($, o
     return { value: undefined }
   })
   on('tool.check', () => ({ decision: 'ask' as const }))
+  on('classic.PermissionRequest', () => ({}) as never)  // no settings hook decides: the dialog shows
   let answer = () => {}
   const answered = new Promise<void>(resolve => (answer = resolve))
   on('tool.call', async () => {
@@ -40,7 +41,9 @@ test('a permission ask raises the lightbulb until the call settles', async ($, o
 
   const input = { tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 't1' }
   const call = $.tool.call(input as never)
-  await $.tool.check(input as never)  // core settles the ask inside the call
+  await $.tool.check(input as never)  // an ask alone shows no dialog yet
+  expect(states.every(s => s.attention === null)).toBe(true)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: input.input } as never)
   expect(states.at(-1)?.attention).toBe('permission')
 
   answer()
@@ -48,7 +51,7 @@ test('a permission ask raises the lightbulb until the call settles', async ($, o
   expect(states.at(-1)?.attention).toBe(null)
 })
 
-test('a check another mod makes ahead of a call raises no lightbulb', async ($, on) => {
+test('an ask settled without a dialog (auto mode, a dry-run check) raises no lightbulb', async ($, on) => {
   mock.clock(on, { now: 1_000 })
   mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
   on('session.id', () => ({ value: 's1' }))
@@ -58,8 +61,11 @@ test('a check another mod makes ahead of a call raises no lightbulb', async ($, 
     return { value: undefined }
   })
   on('tool.check', () => ({ decision: 'ask' as const }))
+  on('tool.call', () => ({ result: 'ok' }) as never)
 
-  await $.tool.check({ tool: 'Bash', input: { command: 'rm -f x' }, tool_use_id: 't2' } as never)
+  const input = { tool: 'Bash', input: { command: 'rm -f x' }, tool_use_id: 't2' }
+  await $.tool.check(input as never)
+  await $.tool.call(input as never)
   expect(states.every(s => s.attention === null)).toBe(true)
 })
 
