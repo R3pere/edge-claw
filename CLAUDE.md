@@ -36,7 +36,7 @@
 ## 桌宠行为（`pet/clawd.pyw`）
 
 - 沿四条边走一圈：位置是一个周长坐标 `p`，`EDGES = bottom → right → top → left`；精灵按所在边旋转，脚贴边（`rotate`/`turn`/`unturn`）。拖拽松手离边 80px 内就吸附，否则掉到任务栏。
-- 干活时：停下摆 Laptop/Thinking/Desktop 姿势 10–20 秒（`POSE_HOLD_S`），姿势之间只挪 ±300px（`WORK_STROLL`）。Thinking 循环用 `POSE_LOOPS`：蹲起(20)→一边冒泡(21–36)→蹲起→另一边冒泡(4–19) 交替。`dev.ps1 pose <姿势>` 让它原地摆 20 秒。
+- 干活时：停下摆 Laptop/Thinking/Desktop 姿势 10–20 秒（`POSE_HOLD_S`），姿势之间只挪 ±300px（`WORK_STROLL`）。Thinking 循环用 `POSE_LOOPS`：一边冒泡(4–5)、三个点数 `THINK_DOTS`=2 遍(6–19)→蹲起(20)→另一边冒泡(21–22)、点数两遍(23–36)→蹲起，交替。`dev.ps1 pose <姿势>` 让它原地摆 20 秒。
 - 动画优先级（`choose_anim`）：一次性动作（`oneshot` + 队列）> 拖拽/掉落 Dizzy > 打盹 > pose（Laptop/Thinking/Desktop/Lightbulb）> 看鼠标（眼珠/指向）> 横着挪 CrabWalking / 东张西望。
 - 动画分段常量都在文件顶部：`SCUTTLE_LOOP`、`POSES`（开场/循环/收尾帧）、`DOZE_*`、`POINT_*`、`EYES`（眼珠 3×4 网格对应的帧）。分段是用 `node tools/sprites.js ids <Name>` 和 `frames` 逐帧看出来的。
 - 提醒：权限/提问举灯泡，原地等到处理完；任务完成原地跳+挥手循环，黄色「!!!」只在跳到最高点那几帧出现（闪烁），直到 Claude 窗口到前台（`claude_in_front`，前台进程名 `claude.exe`）或点一下它。

@@ -70,17 +70,20 @@ DOZE_TEMPO = 0.4  # the nodding plays this much slower than the clip, sleepy and
 # (opening start, loop start, loop end, closing start, closing end).
 POSES = {
     "Laptop": (4, 17, 20, 32, 41),
-    "Thinking": (4, 20, 37, 37, 38),
+    "Thinking": (4, 4, 37, 37, 38),  # no opening: POSE_LOOPS starts it
     "Lightbulb": (4, 11, 41, 41, 44),
     "Desktop": (3, 16, 78, 78, 85),
 }
 WORK_POSES = ("Laptop", "Thinking", "Desktop")
 # A pose whose middle is not one run of frames loops this sequence instead.
-# Thinking has two halves: standing with the bubble on one side (4-19), and,
-# after a little hop (20), crouched with the bubble on the other (21-36). The
-# clip plays each once; held, it hops into one, then hops into the other.
+# Thinking has two halves: standing with the bubble on one side (4-5 the
+# bubble pops up, 6-19 its dots count one, two, three) and, after a little hop
+# (20), crouched with the bubble on the other (21-22 pops up, 23-36 dots).
+# Held, each side counts its dots twice before hopping over to the other.
+THINK_DOTS = 2
 POSE_LOOPS = {
-    "Thinking": (20, *range(21, 37), 20, *range(4, 20)),
+    "Thinking": (4, 5, *tuple(range(6, 20)) * THINK_DOTS, 20,
+                 21, 22, *tuple(range(23, 37)) * THINK_DOTS, 20),
 }
 POSE_HOLD_S = (10.0, 20.0)
 WORK_STROLL = 300  # how far it wanders between poses while working (900 when idle)
