@@ -41,7 +41,6 @@
 - 动画分段常量都在文件顶部：`SCUTTLE_LOOP`、`POSES`（开场/循环/收尾帧）、`DOZE_*`、`POINT_*`、`EYES`（眼珠 3×4 网格对应的帧）。分段是用 `node tools/sprites.js ids <Name>` 和 `frames` 逐帧看出来的。
 - 提醒：权限/提问举灯泡，原地等到处理完；任务完成原地跳+挥手循环，黄色「!!!」只在跳到最高点那几帧出现（闪烁），直到 Claude 窗口到前台（`claude_in_front`，前台进程名 `claude.exe`）或点一下它。
 - 交互：来回摸 3 次 → Excited；单击 → Jumping，2.5 秒内 5 下 → Facepalm；鼠标停在附近 → 眼珠看过去，3 秒后伸钳子指向；右键菜单「跳舞」随机舞种。
-- 闲着：走走停停，每次停下 `IDLE_FIDGET_CHANCE`=40% 随机做个小动作（`IDLE_FIDGETS`：打坐 Meditating、摇摆 Swaying、蹦一下 Jumping、眯眼 Excited、小舞 DancingHappy，按权重、不连续重复），用 `fidget()` 设 oneshot 但不 `wake()`，所以不耽误 90 秒后打盹。
 - 彩蛋：每天第一次召唤举仙女棒（Spark）、周五 18 点后一次、当天每第 5 个任务；长任务完成先放礼花（Confetti）。
 
 ## 开发流程
@@ -72,4 +71,4 @@
 - `clawd_sprites.json` 来自 Claude 桌面应用内置的 Clawd 小游戏（`clawdQuestEngine-*.js`，共 25 套），是 Anthropic 的素材，只供本机自用，不进 git、不分发。
 - 要发布到 GitHub，必须换成原创形象，并写明是非官方项目。
 - 不要用 rullerzhou-afk/clawd-on-desk 的美术：它的 `assets/LICENSE` 明确禁止在它自己的应用之外使用。
-- 已经不用的官方动作：Walking、Running（侧身）、Turning（转身导致卡顿，已移除）。打盹用的是 Disappointed 中段；Meditating 现在是闲着时的打坐小动作。
+- 已经不用的官方动作：Walking、Running（侧身）、Turning（转身导致卡顿，已移除）、Meditating（换成了 Disappointed 中段的打盹）。

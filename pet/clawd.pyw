@@ -100,12 +100,6 @@ WATCH_AFTER_S, POINT_AFTER_S = 0.4, 3.0  # how long the cursor rests before each
 POINT_OPEN, POINT_LOOP = (6, 20), (20, 33)  # Pointing: raise the claw, then hold it out
 DANCES = ("DancingHappy", "Hula", "Swaying", "BreakDancing")
 
-# Idle fidgets: at some of its stops while Claude is quiet, Clawd does a little
-# something on its own instead of just looking around. They are not company:
-# it still dozes off SLEEP_AFTER_S after anyone last played with it.
-IDLE_FIDGETS = {"Meditating": 3, "Swaying": 2, "Jumping": 2, "Excited": 2, "DancingHappy": 1}
-IDLE_FIDGET_CHANCE = 0.4
-
 # LookingAroundEyesOnly holds still and moves only the eyes: the frame with the
 # eyes shifted by (dx, dy) sprite pixels, dx -1..1 (towards Clawd's front),
 # dy -1..2 (down).
@@ -398,7 +392,6 @@ class Clawd:
         self.done_since = 0.0
         self.attention = None  # "permission" or "question" while Claude waits on you
         self.attention_since = 0.0
-        self.last_fidget = None
         self.busy_seen = 0.0  # when a working session was last seen
         self.transcripts_read = 0.0
         self.legacy_working = False  # state.json itself says "working" (an older mod, dev.ps1)
@@ -784,16 +777,6 @@ class Clawd:
             self.pause_until = now + random.uniform(*POSE_HOLD_S)
         else:
             self.pause_until = now + random.uniform(2.0, 6.0)
-            if random.random() < IDLE_FIDGET_CHANCE:
-                self.fidget(now)
-
-    def fidget(self, now):
-        """Does one idle fidget, never the same twice running, without waking anything."""
-        choices = {n: w for n, w in IDLE_FIDGETS.items() if n in self.sprites and n != self.last_fidget}
-        if not choices:
-            return
-        self.last_fidget = random.choices(list(choices), weights=list(choices.values()))[0]
-        self.oneshot, self.oneshot_queue, self.anim_start = self.last_fidget, [], now
 
     def pose_done(self, now):
         """Moves a pose on to its closing once the stop is over; True when it has ended."""
