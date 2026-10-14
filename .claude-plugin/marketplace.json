@@ -1,0 +1,8 @@
+{
+  "name": "edge-claw-local",
+  "owner": { "name": "local" },
+  "metadata": { "description": "Edge Claw: a Clawd desktop pet that walks the screen edges" },
+  "plugins": [
+    { "name": "edge-claw", "source": "./", "description": "Clawd desktop pet with a launch button in Claude Code" }
+  ]
+}

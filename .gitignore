@@ -1,0 +1,8 @@
+# Clawd's artwork is Anthropic's: regenerate it with `node tools/sprites.js extract`, never commit it.
+pet/clawd_sprites.json
+gallery.html
+*.png
+
+__pycache__/
+*.pyc
+.claude-plugin/types/
