@@ -14,6 +14,11 @@ const waiting = new Map<string, Attention>()
 // Tools whose ask is a question to answer, not a permission to grant.
 const QUESTION_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
 
+// Calls on their way to running. Another mod may check a call ahead of time
+// with $.tool.check and then refuse it; that ask never reaches the person and
+// its tool.call never settles, so only asks inside a call in flight count.
+const inFlight = new Set<string>()
+
 function attention(): Attention | null {
   const kinds = [...waiting.values()]
   if (kinds.includes('question')) return 'question'
@@ -178,7 +183,7 @@ export const register: Register = on => {
   // plan to approve) waits on them until its tool.call settles below.
   on('tool.check', async ($, e, next) => {
     const verdict = await next(e)
-    if (verdict.decision === 'ask' && e.tool_use_id) {
+    if (verdict.decision === 'ask' && e.tool_use_id && inFlight.has(e.tool_use_id)) {
       waiting.set(e.tool_use_id, QUESTION_TOOLS.has(e.tool) ? 'question' : 'permission')
       await writeSession($)
     }
@@ -191,9 +196,11 @@ export const register: Register = on => {
       waiting.set(e.tool_use_id, 'question')
       await writeSession($)
     }
+    inFlight.add(e.tool_use_id)
     try {
       return await next(e)
     } finally {
+      inFlight.delete(e.tool_use_id)
       if (waiting.delete(e.tool_use_id)) await writeSession($)
     }
   }).catch(($, e, next) => next(e))

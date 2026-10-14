@@ -31,13 +31,36 @@ test('a permission ask raises the lightbulb until the call settles', async ($, o
     return { value: undefined }
   })
   on('tool.check', () => ({ decision: 'ask' as const }))
-  on('tool.call', () => ({ result: 'ok' }) as never)
+  let answer = () => {}
+  const answered = new Promise<void>(resolve => (answer = resolve))
+  on('tool.call', async () => {
+    await answered  // the dialog is up until the person answers
+    return { result: 'ok' } as never
+  })
 
-  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 't1' } as never)
+  const input = { tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 't1' }
+  const call = $.tool.call(input as never)
+  await $.tool.check(input as never)  // core settles the ask inside the call
   expect(states.at(-1)?.attention).toBe('permission')
 
-  await $.tool.call({ tool: 'Bash', input: { command: 'rm -rf build' }, tool_use_id: 't1' } as never)
+  answer()
+  await call
   expect(states.at(-1)?.attention).toBe(null)
+})
+
+test('a check another mod makes ahead of a call raises no lightbulb', async ($, on) => {
+  mock.clock(on, { now: 1_000 })
+  mock.env(on, { USERPROFILE: 'C:\\Users\\me' })
+  on('session.id', () => ({ value: 's1' }))
+  const states: { attention: string | null }[] = []
+  on('fs.write', (_$, e) => {
+    states.push(JSON.parse(e.text))
+    return { value: undefined }
+  })
+  on('tool.check', () => ({ decision: 'ask' as const }))
+
+  await $.tool.check({ tool: 'Bash', input: { command: 'rm -f x' }, tool_use_id: 't2' } as never)
+  expect(states.every(s => s.attention === null)).toBe(true)
 })
 
 test('a question to the person raises the lightbulb as a question', async ($, on) => {
