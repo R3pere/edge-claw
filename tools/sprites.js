@@ -26,7 +26,7 @@ const USED = [
   'CrabWalking', 'LookingAround', 'LookingAroundEyesOnly', 'Waving', 'Dizzy',
   'Thinking', 'Laptop', 'Desktop', 'Lightbulb', 'JumpingHappy', 'Jumping', 'Excited',
   'Facepalm', 'Pointing', 'Disappointed', 'DancingHappy', 'Hula', 'Swaying', 'BreakDancing',
-  'Confetti', 'Spark',
+  'Confetti', 'Spark', 'Meditating',
 ]
 
 // The app is a Store (MSIX) package: WindowsApps can't be listed, but Windows
