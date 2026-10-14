@@ -20,9 +20,12 @@
 
 都在 `%USERPROFILE%\.claude\edge-claw\` 下，用 JSON 文件，桌宠每 400ms 读一次：
 
-- `state.json`（mod 写）：`{status, attention, ts, durationMs?, cmd?, cmdId?, anim?, then?}`
-  - `status`：`working`（turn.start）/ `done`（主循环 turn 正常结束）/ `interrupted`（Esc、出错、拒答）/ `idle`
+- `session-<会话id>.json`（每个会话的 mod 各写一份）：`{status: working|idle, attention, since, ts}`
+  - turn.start 写 `working` 并每 5 秒刷新 `ts`（`$.clock.every` 心跳），turn 结束 / session.end 写 `idle`
+  - 桌宠：**任一**会话 `working` 且 30 秒内刷新过就进入干活模式；`attention` 取所有会话里的（question 优先）；有会话开了新 turn（`since` 晚于完成提醒）就收起完成提醒；24 小时没动的文件桌宠自己删
   - `attention`：`permission` / `question` / `null`。`tool.check` 结果为 `ask` 时记下 tool_use_id，`tool.call` 结束时清掉；`AskUserQuestion`、`ExitPlanMode` 算 question
+- `state.json`（mod 写）：只发事件 `{status, attention, ts, durationMs?, cmd?, cmdId?, anim?, then?}`
+  - `status`：`done`（主循环 turn 正常结束）/ `interrupted`（Esc、出错、拒答）；mod 不再往这里写 `working`（会话崩了会卡住）。旧版 mod 和 `dev.ps1 state working` 写的 `working`/`attention` 桌宠仍然认
   - `ts` 变了才算新状态；`cmdId` 变了才执行 `cmd`：`quit`、`play`（`anim` + 可选 `then`）、`doze`
   - `durationMs` 随 `done` 一起发，≥5 分钟放礼花
 - `alive.json`（桌宠写）：每秒心跳 `{ts, pid}`，mod 用它判断桌宠在不在（3 秒内）
@@ -32,6 +35,7 @@
 ## 桌宠行为（`pet/clawd.pyw`）
 
 - 沿四条边走一圈：位置是一个周长坐标 `p`，`EDGES = bottom → right → top → left`；精灵按所在边旋转，脚贴边（`rotate`/`turn`/`unturn`）。拖拽松手离边 80px 内就吸附，否则掉到任务栏。
+- 干活时：停下摆 Laptop/Thinking/Desktop 姿势 10–20 秒（`POSE_HOLD_S`），姿势之间只挪 ±300px（`WORK_STROLL`）。
 - 动画优先级（`choose_anim`）：一次性动作（`oneshot` + 队列）> 拖拽/掉落 Dizzy > 打盹 > pose（Laptop/Thinking/Desktop/Lightbulb）> 看鼠标（眼珠/指向）> 横着挪 CrabWalking / 东张西望。
 - 动画分段常量都在文件顶部：`SCUTTLE_LOOP`、`POSES`（开场/循环/收尾帧）、`DOZE_*`、`POINT_*`、`EYES`（眼珠 3×4 网格对应的帧）。分段是用 `node tools/sprites.js ids <Name>` 和 `frames` 逐帧看出来的。
 - 提醒：权限/提问举灯泡，原地等到处理完；任务完成原地跳+挥手循环，黄色「!!!」只在跳到最高点那几帧出现（闪烁），直到 Claude 窗口到前台（`claude_in_front`，前台进程名 `claude.exe`）或点一下它。
