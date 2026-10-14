@@ -45,6 +45,26 @@ async function writeState($: EngineInterface, extra: Record<string, unknown>): P
   }
 }
 
+// Every session also keeps its own session-<id>.json, so Clawd works while any
+// conversation does, not just the one that spoke last. A working session
+// refreshes it every few seconds; the pet drops one that has gone quiet.
+let sessionId = ''
+let turnStartedAt = 0
+let heartbeat: { cancel: () => void } | null = null
+const HEARTBEAT_MS = 5000
+
+async function writeSession($: EngineInterface): Promise<void> {
+  try {
+    if (!sessionId) sessionId = await $.session.id()
+    const ts = await $.clock.now()
+    const busy = status === 'working'
+    const state = { status: busy ? 'working' : 'idle', attention: attention(), since: turnStartedAt, ts }
+    await $.fs.write(`${await petHome($)}\\session-${sessionId}.json`, JSON.stringify(state))
+  } catch {
+    // the pet just keeps doing what it was doing
+  }
+}
+
 async function findPythonw($: EngineInterface): Promise<string> {
   const local = await $.env.get('LOCALAPPDATA')
   if (local) {
@@ -122,18 +142,34 @@ export const register: Register = on => {
   // Main-loop turns only: a subagent's run raises no turn.start.
   on('turn.start', async ($, e, next) => {
     status = 'working'
-    await writeState($, {})
+    turnStartedAt = await $.clock.now()
+    await writeSession($)
+    heartbeat?.cancel()
+    heartbeat = $.clock.every(HEARTBEAT_MS, () => void writeSession($))
 
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
+      heartbeat?.cancel()
+      heartbeat = null
       waiting.clear()
       status = e.reason === 'answer' ? 'done' : 'interrupted'
       await writeState($, { durationMs: e.durationMs })  // a long task earns confetti
       status = 'idle'
+      await writeSession($)
     }
+
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    heartbeat?.cancel()
+    heartbeat = null
+    waiting.clear()
+    status = 'idle'
+    await writeSession($)
 
     return next(e)
   })
@@ -144,7 +180,7 @@ export const register: Register = on => {
     const verdict = await next(e)
     if (verdict.decision === 'ask' && e.tool_use_id) {
       waiting.set(e.tool_use_id, QUESTION_TOOLS.has(e.tool) ? 'question' : 'permission')
-      await writeState($, {})
+      await writeSession($)
     }
 
     return verdict
@@ -153,12 +189,12 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     if (QUESTION_TOOLS.has(e.tool) && !waiting.has(e.tool_use_id)) {
       waiting.set(e.tool_use_id, 'question')
-      await writeState($, {})
+      await writeSession($)
     }
     try {
       return await next(e)
     } finally {
-      if (waiting.delete(e.tool_use_id)) await writeState($, {})
+      if (waiting.delete(e.tool_use_id)) await writeSession($)
     }
   }).catch(($, e, next) => next(e))
 

@@ -1,8 +1,8 @@
 """Clawd: a tiny desktop pet that walks around the edges of the screen.
 
 Started by the edge-claw mod's button in Claude Code. It reads the mod's
-state file to know what Claude is doing: runs and thinks while Claude works,
-jumps for joy when a reply lands, meditates after a while of quiet.
+state files to know what Claude is doing: works while any conversation is
+working, jumps for joy when a reply lands, dozes after a while of quiet.
 
 Clawd keeps its feet on an edge: along the taskbar, up the right side,
 upside down along the top and down the left side, turning at the corners.
@@ -29,6 +29,12 @@ STATE_FILE = os.path.join(HOME, "state.json")
 ALIVE_FILE = os.path.join(HOME, "alive.json")
 MEMORY_FILE = os.path.join(HOME, "memory.json")  # what Clawd remembers across days
 LOCK_PORT = 47391
+
+# Each Claude session keeps a session-<id>.json there, refreshed every few
+# seconds while it works. Clawd works while any of them does.
+SESSION_FRESH_S = 30  # a working session silent this long has gone away
+SESSION_FORGET_S = 24 * 3600  # files untouched this long are cleared out
+BUSY_GRACE_S = 2.0  # rides over a file caught half-written
 
 SCALE = 2  # screen pixels per sprite pixel
 WIN = 48 * SCALE  # square so every rotation fits, wide enough for the desktop computer
@@ -61,7 +67,8 @@ POSES = {
     "Desktop": (3, 16, 78, 78, 85),
 }
 WORK_POSES = ("Laptop", "Thinking", "Desktop")
-POSE_HOLD_S = (4.0, 10.0)
+POSE_HOLD_S = (10.0, 20.0)
+WORK_STROLL = 300  # how far it wanders between poses while working (900 when idle)
 
 # Playing with Clawd. Stroke it (move the mouse back and forth over it) and it
 # squints happily; click it and it hops, click it too often and it facepalms.
@@ -140,6 +147,29 @@ def read_json(path):
             return json.load(f)
     except Exception:
         return {}
+
+
+def read_sessions(now):
+    """The Claude sessions working right now; clears out files long forgotten."""
+    working = []
+    try:
+        names = os.listdir(HOME)
+    except OSError:
+        return working
+    for name in names:
+        if not (name.startswith("session-") and name.endswith(".json")):
+            continue
+        path = os.path.join(HOME, name)
+        try:
+            if now - os.path.getmtime(path) > SESSION_FORGET_S:
+                os.remove(path)
+                continue
+        except OSError:
+            continue
+        session = read_json(path)
+        if session.get("status") == "working" and now - session.get("ts", 0) / 1000 < SESSION_FRESH_S:
+            working.append(session)
+    return working
 
 
 def write_json(path, value):
@@ -279,6 +309,9 @@ class Clawd:
         self.done_since = 0.0
         self.attention = None  # "permission" or "question" while Claude waits on you
         self.attention_since = 0.0
+        self.busy_seen = 0.0  # when a working session was last seen
+        self.legacy_working = False  # state.json itself says "working" (an older mod, dev.ps1)
+        self.legacy_attention = None
         self.pose = None  # "Thinking" or "Laptop" while stopped during work
         self.pose_start = 0.0
         self.pose_leaving = None  # when the closing of the pose began
@@ -529,34 +562,50 @@ class Clawd:
                 self.oneshot, self.oneshot_queue, self.done_alert = None, [], False
                 self.mode, self.sleep_start = "sleep", time.time()
         now = time.time()
+        sessions = read_sessions(now)
+        if sessions:
+            self.busy_seen = now
         ts = state.get("ts", 0)
-        if ts != self.seen_ts:
+        if ts != self.seen_ts:  # news from the conversation that spoke last
             self.seen_ts = ts
             status = state.get("status", "idle")
-            attention = state.get("attention")
+            self.legacy_working = status == "working"
+            self.legacy_attention = state.get("attention") if self.legacy_working else None
             self.wake()
-            if attention != self.attention:
-                self.attention = attention
-                self.attention_since = now
-                if attention is None:
-                    self.lower_lightbulb(now)
             if status == "working":
                 self.done_alert = False  # a new turn: the finished one was seen
-                if self.mode != "working" and self.pose != "Lightbulb":
-                    self.end_pose()
-                    self.pause_until = 0.0
-                self.mode = "working"
             elif status == "done":
-                self.mode = "idle"
                 self.announce_done(state.get("durationMs") or 0)
             elif status == "interrupted":
-                self.mode = "idle"  # stopped with Esc, or ended on an error
-                if self.pose != "Lightbulb":
+                if self.pose != "Lightbulb":  # stopped with Esc, or ended on an error
                     self.play_once("Disappointed")
-            else:
-                self.mode = "idle"
-                if self.pose != "Lightbulb":
-                    self.end_pose()
+            elif self.pose != "Lightbulb":
+                self.end_pose()
+        started = max((s.get("since", 0) for s in sessions), default=0) / 1000
+        if self.done_alert and started > self.done_since:
+            self.done_alert = False  # a new turn began: the finished one was seen
+
+        kinds = [s.get("attention") for s in sessions] + [self.legacy_attention]
+        attention = "question" if "question" in kinds else "permission" if "permission" in kinds else None
+        if attention != self.attention:
+            self.wake()
+            self.attention = attention
+            self.attention_since = now
+            if attention is None:
+                self.lower_lightbulb(now)
+
+        busy = self.legacy_working or now - self.busy_seen < BUSY_GRACE_S
+        if busy and self.mode != "working":
+            self.wake()
+            if self.pose != "Lightbulb" and not self.oneshot:
+                self.end_pose()
+                self.pause_until = 0.0
+            self.mode = "working"
+        elif not busy and self.mode == "working":
+            self.mode = "idle"
+            self.last_activity = now
+            if self.pose in WORK_POSES and self.pose_leaving is None:
+                self.pause_until = now  # finish the pose's closing, then stroll
         if self.done_alert and now - self.done_since >= ACK_AFTER_S and claude_in_front():
             self.done_alert = False  # seen: finish this jump or wave, then walk on
         self.friday_evening_spark(now)
@@ -625,7 +674,7 @@ class Clawd:
         self.pause_until = max(self.pause_until, now + 0.3)
 
     def pick_target(self, now):
-        span = 500 if self.mode == "working" else 900
+        span = WORK_STROLL if self.mode == "working" else 900
         self.target = self.p + random.uniform(-span, span)
         if self.mode == "working":
             self.pose = random.choice(WORK_POSES)
