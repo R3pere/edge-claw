@@ -660,7 +660,7 @@ class Clawd:
             if transcripts_working(now, written):
                 self.busy_seen = now
         ts = state.get("ts", 0)
-        if ts != self.seen_ts:  # news from the conversation that spoke last
+        if ts != self.seen_ts and not state.get("cmd"):  # news from the conversation that spoke last (a cmd is no news)
             self.seen_ts = ts
             status = state.get("status", "idle")
             self.legacy_working = status == "working"
