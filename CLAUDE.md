@@ -22,6 +22,7 @@
 
 - `session-<会话id>.json`（每个会话的 mod 各写一份）：`{status: working|idle, attention, since, ts}`
   - turn.start 写 `working` 并每 5 秒刷新 `ts`（`$.clock.every` 心跳），turn 结束 / session.end 写 `idle`
+  - 兜底：没有新鲜会话文件的对话（旧版 mod、中途热更新），桌宠每 2 秒看 `~/.claude/projects/*/*.jsonl` 末尾：最后一条不是 Claude 的收尾回答（`end_turn` / `stop_hook_summary` / Esc / 斜杠命令）就算这一轮还在进行；30 分钟没动的不看
   - 桌宠：**任一**会话 `working` 且 30 秒内刷新过就进入干活模式；`attention` 取所有会话里的（question 优先）；有会话开了新 turn（`since` 晚于完成提醒）就收起完成提醒；24 小时没动的文件桌宠自己删
   - `attention`：`permission` / `question` / `null`。`tool.check` 结果为 `ask` 时记下 tool_use_id，`tool.call` 结束时清掉；`AskUserQuestion`、`ExitPlanMode` 算 question
 - `state.json`（mod 写）：只发事件 `{status, attention, ts, durationMs?, cmd?, cmdId?, anim?, then?}`

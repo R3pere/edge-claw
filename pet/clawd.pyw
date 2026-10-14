@@ -34,7 +34,15 @@ LOCK_PORT = 47391
 # seconds while it works. Clawd works while any of them does.
 SESSION_FRESH_S = 30  # a working session silent this long has gone away
 SESSION_FORGET_S = 24 * 3600  # files untouched this long are cleared out
-BUSY_GRACE_S = 2.0  # rides over a file caught half-written
+BUSY_GRACE_S = 3.0  # rides over a file caught half-written, and between transcript reads
+
+# Sessions that keep no fresh session file (an older mod, or one reloaded in
+# the middle of a turn) are read from their transcripts instead: a turn whose
+# last word is not Claude's closing answer is still going.
+PROJECTS = os.path.join(os.path.expanduser("~"), ".claude", "projects")
+TRANSCRIPT_ACTIVE_S = 30 * 60  # a transcript untouched this long is not running
+TRANSCRIPT_EVERY_S = 2.0
+TRANSCRIPT_TAIL = 256 * 1024
 
 SCALE = 2  # screen pixels per sprite pixel
 WIN = 48 * SCALE  # square so every rotation fits, wide enough for the desktop computer
@@ -149,8 +157,11 @@ def read_json(path):
         return {}
 
 
-def read_sessions(now):
-    """The Claude sessions working right now; clears out files long forgotten."""
+def read_sessions(now, written=None):
+    """The Claude sessions working right now; clears out files long forgotten.
+
+    `written`, when given, collects each session id's file time.
+    """
     working = []
     try:
         names = os.listdir(HOME)
@@ -161,15 +172,77 @@ def read_sessions(now):
             continue
         path = os.path.join(HOME, name)
         try:
-            if now - os.path.getmtime(path) > SESSION_FORGET_S:
+            modified = os.path.getmtime(path)
+            if now - modified > SESSION_FORGET_S:
                 os.remove(path)
                 continue
         except OSError:
             continue
+        if written is not None:
+            written[name[len("session-"):-len(".json")]] = modified
         session = read_json(path)
         if session.get("status") == "working" and now - session.get("ts", 0) / 1000 < SESSION_FRESH_S:
             working.append(session)
     return working
+
+
+def turn_open(path):
+    """True while the transcript's last turn has not ended."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - TRANSCRIPT_TAIL))
+            tail = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return False
+    for line in reversed(tail):
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue  # cut off by the tail, or half-written
+        kind = record.get("type")
+        if kind == "system" and record.get("subtype") == "stop_hook_summary":
+            return False
+        if kind == "assistant":
+            return (record.get("message") or {}).get("stop_reason") == "tool_use"
+        if kind == "user":
+            if record.get("isMeta"):
+                continue
+            content = (record.get("message") or {}).get("content")
+            texts = [c.get("text", "") for c in content if isinstance(c, dict)] if isinstance(content, list) else [content]
+            ended = ("[Request interrupted", "<command-name>", "<local-command-")  # Esc, or a slash command
+            return not any(isinstance(t, str) and t.lstrip().startswith(ended) for t in texts)
+    return True  # nothing readable near the end: a huge tool result, mid-turn
+
+
+def transcripts_working(now, fresh):
+    """How many sessions without a fresh session file are in the middle of a turn."""
+    count = 0
+    try:
+        projects = os.listdir(PROJECTS)
+    except OSError:
+        return 0
+    for project in projects:
+        folder = os.path.join(PROJECTS, project)
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            if not name.endswith(".jsonl"):
+                continue
+            path = os.path.join(folder, name)
+            try:
+                modified = os.path.getmtime(path)
+            except OSError:
+                continue
+            if now - modified > TRANSCRIPT_ACTIVE_S:
+                continue
+            if fresh.get(name[:-len(".jsonl")], 0) >= modified - 15:
+                continue  # its session file speaks for it
+            if turn_open(path):
+                count += 1
+    return count
 
 
 def write_json(path, value):
@@ -310,6 +383,7 @@ class Clawd:
         self.attention = None  # "permission" or "question" while Claude waits on you
         self.attention_since = 0.0
         self.busy_seen = 0.0  # when a working session was last seen
+        self.transcripts_read = 0.0
         self.legacy_working = False  # state.json itself says "working" (an older mod, dev.ps1)
         self.legacy_attention = None
         self.pose = None  # "Thinking" or "Laptop" while stopped during work
@@ -562,9 +636,14 @@ class Clawd:
                 self.oneshot, self.oneshot_queue, self.done_alert = None, [], False
                 self.mode, self.sleep_start = "sleep", time.time()
         now = time.time()
-        sessions = read_sessions(now)
+        written = {}
+        sessions = read_sessions(now, written)
         if sessions:
             self.busy_seen = now
+        if now - self.transcripts_read >= TRANSCRIPT_EVERY_S:
+            self.transcripts_read = now
+            if transcripts_working(now, written):
+                self.busy_seen = now
         ts = state.get("ts", 0)
         if ts != self.seen_ts:  # news from the conversation that spoke last
             self.seen_ts = ts
