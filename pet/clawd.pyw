@@ -88,6 +88,19 @@ POSE_LOOPS = {
 POSE_HOLD_S = (10.0, 20.0)
 WORK_STROLL = 300  # how far it wanders between poses while working (900 when idle)
 
+# Now and then, stopped on the taskbar while idle, Clawd sits down and fishes in
+# it (custom_sprites.json, drawn by tools/draw_custom.py): FishingCast takes the
+# rod out and casts, FishingWait loops until something bites, then a
+# FishingCatch-<fish> reels it in, lets it bounce and puts the rod away.
+# Anything that interrupts it plays FishingStow first.
+FISHING_CHANCE = 0.35  # of the idle stops on the bottom edge
+FISH_WAIT_S = (10.0, 18.0)
+FISHES = ("cod", "salmon", "tropical", "pufferfish")
+FISH_EXTRA = 16 * SCALE  # the window widens by this on each side: the dock and the line need room
+# A big stretch (custom_sprites.json): after standing up from a doze, and now
+# and then at an idle stop.
+STRETCH_CHANCE = 0.15  # of the idle stops (that aren't spent fishing)
+
 # Playing with Clawd. Stroke it (move the mouse back and forth over it) and it
 # squints happily; click it and it hops, click it too often and it facepalms.
 # Rest the cursor near it and it looks at the cursor, then points at it.
@@ -358,6 +371,8 @@ class Clawd:
 
         with open(os.path.join(HERE, "clawd_sprites.json"), "r", encoding="utf-8") as f:
             self.sprites = {name: Sprite(data) for name, data in json.load(f).items()}
+        with open(os.path.join(HERE, "custom_sprites.json"), "r", encoding="utf-8") as f:
+            self.sprites.update((name, Sprite(data)) for name, data in json.load(f).items())
         self.image_id = self.canvas.create_image(0, 0, anchor="nw")
         self.zzz_id = self.canvas.create_text(0, 0, text="", fill="#D97757",
                                               font=("Segoe UI", 9, "bold"))
@@ -381,6 +396,7 @@ class Clawd:
         self.dragging = None
         self.falling = False
         self.vy = 0.0
+        self.extra = 0  # how far the window is widened on each side
 
         self.mode = "idle"  # idle | working | sleep
         self.last_activity = time.time()
@@ -399,8 +415,13 @@ class Clawd:
         self.pose = None  # "Thinking" or "Laptop" while stopped during work
         self.pose_start = 0.0
         self.pose_leaving = None  # when the closing of the pose began
+        self.fish_stage = None  # "cast" | "wait" | "catch" while the pose is "Fishing"
+        self.fish_start = 0.0
+        self.fish_until = 0.0
+        self.fish_kind = FISHES[0]
         self.sleep_start = 0.0
         self.wake_start = -1.0  # when it last stood up from a doze
+        self.stretch_after_wake = False
         self.watching = None  # "eyes" or "point" while the resting cursor holds its gaze
         self.watch_start = 0.0
         self.eye_frame = 0
@@ -566,14 +587,51 @@ class Clawd:
         if self.mode == "sleep":
             self.mode = "idle"
             self.wake_start = self.last_activity  # stand back up before anything else
+            self.stretch_after_wake = True
+
+    def stretch(self, now):
+        """Not a wake-up: the doze timer keeps running."""
+        self.oneshot, self.oneshot_queue, self.anim_start = "Stretching", [], now
 
     def play_once(self, name, then=()):
         self.wake()
+        if self.pose == "Fishing":
+            name, then = "FishingStow", [name, *then]  # the rod goes away first
         self.end_pose()
         self.done_alert = False
         self.oneshot = name
         self.oneshot_queue = list(then)
         self.anim_start = time.time()
+
+    def start_fishing(self, now):
+        self.end_pose()
+        self.pose, self.pose_start, self.pose_leaving = "Fishing", now, None
+        self.fish_stage, self.fish_start = "cast", now
+        self.pause_until = float("inf")  # until the rod is put away
+
+    def put_rod_away(self):
+        """Fishing is interrupted: Clawd stows the rod before anything else."""
+        if self.pose == "Fishing":
+            self.end_pose()
+            self.oneshot, self.oneshot_queue, self.anim_start = "FishingStow", [], time.time()
+
+    def fish_clip(self):
+        return {"cast": "FishingCast", "wait": "FishingWait"}.get(self.fish_stage, "FishingCatch-" + self.fish_kind)
+
+    def fish_step(self, now):
+        """Moves fishing on: cast, wait for a bite, catch; then Clawd walks on."""
+        if self.pose != "Fishing":
+            return
+        sprite = self.sprites[self.fish_clip()]
+        n = int((now - self.fish_start) * sprite.fps)
+        if self.fish_stage == "cast" and n >= len(sprite):
+            self.fish_stage, self.fish_start = "wait", now
+            self.fish_until = now + random.uniform(*FISH_WAIT_S)
+        elif self.fish_stage == "wait" and now >= self.fish_until and n % len(sprite) == 0:
+            self.fish_stage, self.fish_start = "catch", now  # bites on the loop's first frame, so it joins up
+            self.fish_kind = random.choice(FISHES)
+        elif self.fish_stage == "catch" and n >= len(sprite):
+            self.end_pose()
 
     def announce_done(self, duration_ms=0):
         """A task finished: stop and jump and wave, over and over, until acknowledged.
@@ -615,9 +673,14 @@ class Clawd:
 
     def raise_lightbulb(self, now):
         self.wake()
+        fishing = self.pose == "Fishing"
         self.oneshot = None
         self.oneshot_queue = []
         self.done_alert = False
+        if fishing:  # puts the rod away, then the bulb goes up
+            self.oneshot, self.anim_start = "FishingStow", now
+            stow = self.sprites["FishingStow"]
+            now += len(stow) / stow.fps
         self.pose = "Lightbulb"
         self.pose_start = now
         self.pose_leaving = None
@@ -628,6 +691,9 @@ class Clawd:
             self.pause_until = now  # the closing plays, then Clawd walks on
 
     def end_pose(self):
+        if self.pose == "Fishing":
+            self.fish_stage = None
+            self.pause_until = time.time()  # it was held for the fishing
         self.pose = None
         self.pose_leaving = None
 
@@ -641,6 +707,10 @@ class Clawd:
                 return
             if state.get("cmd") == "play" and state.get("anim") in self.sprites:
                 self.play_once(state["anim"], then=[a for a in state.get("then", []) if a in self.sprites])
+            if state.get("cmd") == "pose" and state.get("anim") == "Fishing" and self.edge == "bottom":
+                self.wake()
+                self.oneshot, self.oneshot_queue, self.done_alert = None, [], False
+                self.start_fishing(time.time())
             if state.get("cmd") == "pose" and state.get("anim") in POSES:  # hold a pose, for showing it off
                 self.wake()
                 self.oneshot, self.oneshot_queue, self.done_alert = None, [], False
@@ -673,7 +743,7 @@ class Clawd:
             elif status == "interrupted":
                 if self.pose != "Lightbulb":  # stopped with Esc, or ended on an error
                     self.play_once("Disappointed")
-            elif self.pose != "Lightbulb":
+            elif self.pose not in ("Lightbulb", "Fishing"):
                 self.end_pose()
         started = max((s.get("since", 0) for s in sessions), default=0) / 1000
         if self.done_alert and started > self.done_since:
@@ -691,6 +761,7 @@ class Clawd:
         busy = self.legacy_working or now - self.busy_seen < BUSY_GRACE_S
         if busy and self.mode != "working":
             self.wake()
+            self.put_rod_away()
             if self.pose != "Lightbulb" and not self.oneshot:
                 self.end_pose()
                 self.pause_until = 0.0
@@ -727,6 +798,8 @@ class Clawd:
             return "Disappointed"  # dozing (see frame_index)
         if self.waking(now):
             return "Disappointed"
+        if self.pose == "Fishing":
+            return self.fish_clip()
         if self.pose:
             return self.pose
         if self.watching:
@@ -775,8 +848,12 @@ class Clawd:
             self.pose_start = now
             self.pose_leaving = None
             self.pause_until = now + random.uniform(*POSE_HOLD_S)
+        elif self.edge_of(self.p)[0] == "bottom" and random.random() < FISHING_CHANCE:
+            self.start_fishing(now)
         else:
             self.pause_until = now + random.uniform(2.0, 6.0)
+            if random.random() < STRETCH_CHANCE:
+                self.stretch(now)
 
     def pose_done(self, now):
         """Moves a pose on to its closing once the stop is over; True when it has ended."""
@@ -798,10 +875,16 @@ class Clawd:
         if (self.attention and not bulb_up and not self.dragging and not self.falling
                 and now - self.attention_since >= ATTENTION_DELAY_S):
             self.raise_lightbulb(now)
-        if self.mode == "idle" and not self.oneshot and now - self.last_activity > SLEEP_AFTER_S:
+        if self.mode == "idle" and not self.oneshot and not self.pose and now - self.last_activity > SLEEP_AFTER_S:
             self.mode = "sleep"
             self.sleep_start = now
         self.update_watch(now)
+        self.fish_step(now)
+        if self.stretch_after_wake and not self.waking(now):
+            self.stretch_after_wake = False  # stood up from the doze: stretches, unless busy
+            if (self.mode == "idle" and not self.oneshot and not self.pose and not self.attention
+                    and not self.done_alert and not self.dragging and not self.falling):
+                self.stretch(now)
 
         if self.falling:
             self.vy += 0.9
@@ -836,7 +919,8 @@ class Clawd:
     # --- drawing ---------------------------------------------------------
 
     def place(self):
-        self.root.geometry(f"{WIN}x{WIN}+{int(self.x)}+{int(self.y)}")
+        e = self.extra
+        self.root.geometry(f"{WIN + 2 * e}x{WIN}+{int(self.x) - e}+{int(self.y)}")
 
     def frame_index(self, name, now):
         sprite = self.sprites[name]
@@ -844,6 +928,9 @@ class Clawd:
         if name == SCUTTLE:
             start, end = SCUTTLE_LOOP
             return start + int((now - self.anim_start) * fps) % (end - start)
+        if self.pose == "Fishing" and name == self.fish_clip():
+            n = int((now - self.fish_start) * fps)
+            return n % len(sprite) if self.fish_stage == "wait" else min(n, len(sprite) - 1)
         if name == self.pose:
             open_start, loop_start, loop_end, close_start, close_end = POSES[name]
             if self.pose_leaving is not None:
@@ -885,6 +972,11 @@ class Clawd:
         elif name == self.oneshot:
             self.anim = name
         sprite = self.sprites[name]
+        extra = FISH_EXTRA if name.startswith("Fishing") else 0
+        if extra != self.extra:
+            self.extra = extra
+            self.canvas.configure(width=WIN + 2 * extra)
+            self.place()
         # while held or falling Clawd is upright; otherwise its feet face its edge
         edge = "bottom" if (self.dragging or self.falling) else self.edge
         index = self.frame_index(name, now)
@@ -893,6 +985,7 @@ class Clawd:
         # put the feet on the middle of the window side that touches the edge
         foot = {"bottom": (WIN / 2, WIN), "top": (WIN / 2, 0),
                 "right": (WIN, WIN / 2), "left": (0, WIN / 2)}[edge]
+        foot = (foot[0] + self.extra, foot[1])
         self.canvas.coords(self.image_id, foot[0] - fx, foot[1] - fy)
         self.canvas.itemconfigure(self.image_id, image=image)
 

@@ -12,6 +12,7 @@
 | `types/index.d.ts` | mod 的 `$.state` 类型契约（`PluginState['edge-claw']`） |
 | `pet/clawd.pyw` | 桌宠本体：Python 3 + tkinter，单文件，无第三方依赖 |
 | `pet/clawd_sprites.json` | 动画素材，**不进 git**，用 `node tools/sprites.js extract` 从本机 Claude 应用里生成 |
+| `pet/custom_sprites.json` | 原创动画（钓鱼、伸懒腰），进 git，由 `tools/draw_custom.py` 用代码画出来生成 |
 | `tools/sprites.js` | 素材工具：extract / list / gallery / frames / ids |
 | `scripts/dev.ps1` | 开发脚本：reload / launch / quit / play / doze / state / test |
 | `.claude-plugin/` | 插件清单和本地 marketplace（`edge-claw@edge-claw-local`，目录型，指向本文件夹） |
@@ -41,6 +42,8 @@
 - 动画分段常量都在文件顶部：`SCUTTLE_LOOP`、`POSES`（开场/循环/收尾帧）、`DOZE_*`、`POINT_*`、`EYES`（眼珠 3×4 网格对应的帧）。分段是用 `node tools/sprites.js ids <Name>` 和 `frames` 逐帧看出来的。
 - 提醒：权限/提问举灯泡，原地等到处理完；任务完成原地跳+挥手循环，黄色「!!!」只在跳到最高点那几帧出现（闪烁），直到 Claude 窗口到前台（`claude_in_front`，前台进程名 `claude.exe`）或点一下它。
 - 交互：来回摸 3 次 → Excited；单击 → Jumping，2.5 秒内 5 下 → Facepalm；鼠标停在附近 → 眼珠看过去，3 秒后伸钳子指向；右键菜单「跳舞」随机舞种。
+- 钓鱼：闲着时停在底边，35% 概率去钓鱼（`FISHING_CHANCE`）：FishingCast 原地起跳、木栈桥从身后滑到脚下、落在栈桥尽头坐下、掏杆甩杆 → FishingWait 循环至少 10 秒（`FISH_WAIT_S`），眼睛一直盯着鱼线碰到任务栏的地方（冒蓝色小气泡） → FishingCatch-<鱼>（鳕鱼/鲑鱼/热带鱼/河豚，随机）钓上来落在任务栏上弹两下、跳回鱼线处、收杆、跳下栈桥、栈桥从身后滑走。被打断（点击、灯泡、开始干活等）先播 FishingStow 收杆跳下。钓鱼素材 80 像素宽，播放时窗口两边各加宽 `FISH_EXTRA`。自画动画 12fps，首尾帧和 CrabWalking 站立帧一致。`dev.ps1 pose Fishing` 立刻开钓（只在底边）。
+- 伸懒腰（Stretching，自画 12fps）：打盹醒来站起后伸一个；闲着停下时（不钓鱼的那些）15% 概率伸一个（`STRETCH_CHANCE`），不重置打盹计时。`dev.ps1 play Stretching` 看效果。
 - 彩蛋：每天第一次召唤举仙女棒（Spark）、周五 18 点后一次、当天每第 5 个任务；长任务完成先放礼花（Confetti）。
 
 ## 开发流程

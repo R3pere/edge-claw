@@ -192,7 +192,8 @@ function main() {
       console.log(`${n.padEnd(22)} ${(s.w + 'x' + s.h).padEnd(6)} ${String(s.frames.length).padStart(3)} frames  anchor (${s.ax}, ${s.ay})  ${USED.includes(n) ? 'used' : ''}`)
     }
   } else if (cmd === 'gallery') {
-    gallery(all, args[0] || 'gallery.html')
+    const custom = path.join(ROOT, 'pet', 'custom_sprites.json')
+    gallery(fs.existsSync(custom) ? { ...JSON.parse(fs.readFileSync(custom, 'utf8')), ...all } : all, args[0] || 'gallery.html')
     console.log('wrote', args[0] || 'gallery.html')
   } else if (cmd === 'frames') {
     framesSheet(all, args.slice(1), args[0])
